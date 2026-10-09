@@ -84,6 +84,27 @@ int ahx_module_playing(void)
     return ahx_mod_loaded;
 }
 
+int ahx_module_subsong(unsigned index)
+{
+    if (!ahx_mod_loaded) {
+        return AHX_ERR_FIELD;
+    }
+    return ahx_player_subsong(&ahx_mod_player, index);
+}
+
+/* The two below are for a caller that shows what is playing - the device's AHXBox screen reads the
+ * title out of the song and the position out of the transport. Nothing writes through them, and
+ * both go NULL at close, so a caller must re-read them rather than keep them. */
+const ahx_song_t *ahx_module_song(void)
+{
+    return ahx_mod_loaded ? &ahx_mod_song : 0;
+}
+
+const ahx_player_t *ahx_module_transport(void)
+{
+    return ahx_mod_loaded ? &ahx_mod_player : 0;
+}
+
 void ahx_module_mix(int32_t *mix_l, int32_t *mix_r, uint32_t n)
 {
     int16_t block[2 * AHX_MODULE_CHUNK];
