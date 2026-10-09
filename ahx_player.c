@@ -299,9 +299,8 @@ static void ahx_stepfx_3(ahx_player_t *p, ahx_voice_t *v, unsigned fx, unsigned 
  * and Shinobi's beach buggy, see docs/ahx-engine.md). A render that stops is worse than a
  * voice that holds its volume, so a zero length steps by zero instead and the envelope's
  * own terms never run. */
-static void ahx_load_instrument(ahx_player_t *p, ahx_voice_t *v, uint8_t index)
+static void ahx_voice_load(ahx_player_t *p, ahx_voice_t *v, ahx_inst_t ins)
 {
-    ahx_inst_t ins = ahx_instrument(p->song, index);
     int32_t a = ins.attack_len, d = ins.decay_len, r = ins.release_len;
     int32_t sq_lo, sq_hi, f_lo, f_hi;
 
@@ -385,6 +384,12 @@ static void ahx_load_instrument(ahx_player_t *p, ahx_voice_t *v, uint8_t index)
     v->perf_current = 0;
     v->perf_wait = 0;
     v->perf_speed = ins.plist_speed;
+}
+
+/* The same, for the instrument a cell names. */
+static void ahx_load_instrument(ahx_player_t *p, ahx_voice_t *v, uint8_t index)
+{
+    ahx_voice_load(p, v, ahx_instrument(p->song, index));
 }
 
 /* ---------------------------------------------------------------------------------------
@@ -1026,10 +1031,10 @@ static void ahx_play_irq(ahx_player_t *p)
     }
 }
 
-/* Sum the four voices and store them. The gain is applied to the sum the way the reference
- * applies it, and the store is a truncation rather than a clip: a loud passage wraps, which
- * is what the oracle does and therefore what a byte comparison needs. */
-static void ahx_mix(ahx_player_t *p, int16_t *out, uint32_t samples)
+/* Sum the voices mask selects and store them. The gain is applied to the sum the way the
+ * reference applies it, and the store is a truncation rather than a clip: a loud passage wraps,
+ * which is what the oracle does and therefore what a byte comparison needs. */
+static void ahx_mix(ahx_player_t *p, int16_t *out, uint32_t samples, unsigned mask)
 {
     uint32_t done = 0;
 
@@ -1045,7 +1050,9 @@ static void ahx_mix(ahx_player_t *p, int16_t *out, uint32_t samples)
         memset(acc_right, 0, n * sizeof *acc_right);
 
         for (i = 0; i < AHX_CHANNELS; i++) {
-            ahx_voice_mix(&p->voice[i], acc_left, acc_right, n);
+            if (mask & (1u << i)) {
+                ahx_voice_mix(&p->voice[i], acc_left, acc_right, n);
+            }
         }
 
         for (i = 0; i < n; i++) {
@@ -1152,7 +1159,19 @@ void ahx_player_frame(ahx_player_t *p, int16_t *out)
     ahx_player_block(p, out, p->frame_samples);
 }
 
-void ahx_player_block(ahx_player_t *p, int16_t *out, uint32_t samples)
+/* One tick of an auditioned note: the voice's own frame step, which is the envelope, the
+ * playlist and the modulation, with no transport and no cells. */
+static void ahx_audition_irq(ahx_player_t *p)
+{
+    ahx_frame_voice(p, &p->voice[0]);
+    ahx_voice_set_audio(&p->voice[0], p->waves, p->frequency);
+}
+
+/* The tick and frame machine, shared by the transport and by an auditioned note, so that the
+ * two cannot slice a frame differently. voice_mask selects what is mixed and audition selects
+ * the irq, which is the whole of the difference between the two paths. */
+static void ahx_player_run(ahx_player_t *p, int16_t *out, uint32_t samples, unsigned voice_mask,
+                           int audition)
 {
     uint32_t tail = p->frame_samples - p->speed_multiplier * p->tick_samples;
 
@@ -1177,13 +1196,17 @@ void ahx_player_block(ahx_player_t *p, int16_t *out, uint32_t samples)
         } else {
             /* A tick's irq runs once, at its first sample, however the calls are cut. */
             if (p->tick_pos == 0) {
-                ahx_play_irq(p);
+                if (audition) {
+                    ahx_audition_irq(p);
+                } else {
+                    ahx_play_irq(p);
+                }
             }
             chunk = p->tick_samples - p->tick_pos;
             if (chunk > samples) {
                 chunk = samples;
             }
-            ahx_mix(p, out, chunk);
+            ahx_mix(p, out, chunk, voice_mask);
             p->tick_pos += chunk;
             if (p->tick_pos == p->tick_samples) {
                 p->tick_pos = 0;
@@ -1194,6 +1217,45 @@ void ahx_player_block(ahx_player_t *p, int16_t *out, uint32_t samples)
         out += (size_t)chunk * 2;
         samples -= chunk;
     }
+}
+
+void ahx_player_block(ahx_player_t *p, int16_t *out, uint32_t samples)
+{
+    ahx_player_run(p, out, samples, (1u << AHX_CHANNELS) - 1u, 0);
+}
+
+void ahx_player_audition_block(ahx_player_t *p, int16_t *out, uint32_t samples)
+{
+    ahx_player_run(p, out, samples, 1u, 1);
+}
+
+void ahx_player_audition(ahx_player_t *p, const ahx_inst_t *inst, uint8_t note)
+{
+    ahx_voice_t *v = &p->voice[0];
+
+    ahx_voice_init(v);
+    v->track_on = 1;
+    v->transpose = 0;
+    v->override_transpose = 1000;
+    ahx_voice_set_pan(v, p->pan, ahx_pan_side[0] ? p->defpan_right : p->defpan_left);
+
+    /* The frame step's two lookaheads read a neighbouring cell off the voice's track, and a
+     * note has no neighbours. trk + 1 is past the module's tracks, where ahx_cell() returns an
+     * empty cell, so neither a hard cut nor a next instrument is found. */
+    v->track = (int16_t)p->song->trk + 1;
+    v->next_track = v->track;
+
+    /* The note starts at the top of a frame, which is also where a caller that renders it
+     * through ahx_player_audition_block() has to be for the two paths to line up. */
+    p->note_nr = 0;
+    p->tick_pos = 0;
+    p->tick_nr = 0;
+    p->tail_pos = 0;
+
+    ahx_voice_load(p, v, *inst);
+
+    v->track_period = note;
+    v->plant_period = 1;
 }
 
 uint32_t ahx_player_render(ahx_player_t *p, int16_t *out, uint32_t frames)

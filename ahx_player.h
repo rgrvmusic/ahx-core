@@ -70,6 +70,23 @@ void ahx_player_block(ahx_player_t *player, int16_t *out, uint32_t samples);
 /* Render up to frames frames and return the number rendered. */
 uint32_t ahx_player_render(ahx_player_t *player, int16_t *out, uint32_t frames);
 
+/* Sound one note, for a caller that has no pattern row: an audition on a key, a preview on a
+ * row the cursor landed on. It goes through the load and the frame step a cell goes through, so
+ * the envelope, the playlist, the square and filter modulation and the vibrato sound here as
+ * they will in the module; and the instrument is the caller's, so one being edited can be heard
+ * before it is written anywhere.
+ *
+ * Use a player of its own, initialized for the module the instrument came from: the song,
+ * waves, pan and frequency are read, and of its voices only voice 0 is touched (note is an
+ * AHX note, 1..60). Any note already sounding is replaced, and the note starts at the top of
+ * a frame. The amplitude ramp in and out is the caller's: a release in the middle of a
+ * waveform is a click. */
+void ahx_player_audition(ahx_player_t *player, const ahx_inst_t *inst, uint8_t note);
+
+/* Render samples stereo pairs of the note ahx_player_audition() started, on the same tick and
+ * frame boundaries ahx_player_block() uses, so the two cannot drift apart. */
+void ahx_player_audition_block(ahx_player_t *player, int16_t *out, uint32_t samples);
+
 /* Vibrato lookup table. */
 extern const int16_t ahx_vib_tab[64];
 
