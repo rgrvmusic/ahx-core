@@ -1,0 +1,4 @@
+# the host build: objects, the static library, and the note demo binary
+*.o
+libahx-core.a
+ahx_note_demo
