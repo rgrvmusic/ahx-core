@@ -132,7 +132,8 @@ enum {
     AHX_OK = 0,
     AHX_ERR_SHORT,               /* a structure runs past the end of the module */
     AHX_ERR_ID,                  /* not "THX" plus 0 or 1 */
-    AHX_ERR_FIELD                /* a header field is outside its valid range */
+    AHX_ERR_FIELD,               /* a header field is outside its valid range */
+    AHX_ERR_ROOM                 /* a write would not fit the caller's buffer */
 };
 
 /* Parse a module. On error, the song struct is unusable. */

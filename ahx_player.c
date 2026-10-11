@@ -94,7 +94,10 @@ static void ahx_stepfx_1(ahx_player_t *p, ahx_voice_t *v, unsigned fx, unsigned 
          * backwards repeats and a jump forwards is not checked at all. */
         p->pos_jump = (uint16_t)(p->pos_jump * 100 + (data & 0x0f) + (data >> 4) * 10);
         p->pattern_break = 1;
-        if (p->pos_jump <= (uint16_t)p->pos_nr) {
+
+        /* A jump back is how a module repeats itself, and the reference calls that the song's
+         * end. Under a loop the transport is not ending: the pattern it is in is. */
+        if (!p->pattern_loop && p->pos_jump <= (uint16_t)p->pos_nr) {
             p->song_end_reached = 1;
         }
         break;
@@ -1013,6 +1016,14 @@ static void ahx_play_irq(ahx_player_t *p)
             p->pos_nr = (int16_t)p->pos_jump;
             p->note_nr = (int16_t)p->pos_jump_note;
 
+            /* A loop holds one pattern, and it takes the row above first, so a break inside the
+             * pattern lands on its row while a jump out of it is put back. The reference's loop
+             * range does this in the same place and the same order (rfx/players/ahx_player.c:
+             * PosJumpNote into NoteNr, then the range check), over a range rather than one. */
+            if (p->pattern_loop && p->pos_nr != (int16_t)p->loop_pos) {
+                p->pos_nr = (int16_t)p->loop_pos;
+            }
+
             /* Off the end of the position list is the song's end, and the transport rewinds
              * to the restart position so that a caller that keeps going hears the loop. */
             if (p->pos_nr == (int16_t)p->song->len) {
@@ -1093,6 +1104,11 @@ void ahx_player_init(ahx_player_t *p, const ahx_song_t *song, const ahx_waves_t 
      * loader turns a restart past the end of the position list into the last position. */
     p->restart = (song->res < song->len) ? song->res : (uint16_t)(song->len - 1);
 
+    /* The caller's own switches, which the memset leaves at zero, and a zero voice mask is
+     * silence: every voice is in the mix until a caller takes one out. */
+    p->pattern_loop = 0;
+    p->voices = (uint8_t)((1u << AHX_CHANNELS) - 1u);
+
     for (i = 0; i < AHX_CHANNELS; i++) {
         ahx_voice_init(&p->voice[i]);
     }
@@ -1145,6 +1161,28 @@ int ahx_player_subsong(ahx_player_t *p, unsigned index)
     }
 
     return 1;
+}
+
+void ahx_player_loop(ahx_player_t *p, int on)
+{
+    p->pattern_loop = on ? 1 : 0;
+    p->loop_pos = (uint16_t)p->pos_nr;
+}
+
+void ahx_player_seek(ahx_player_t *p, uint16_t pos)
+{
+    if (pos >= p->song->len) {
+        pos = p->song->len ? (uint16_t)(p->song->len - 1u) : 0u;
+    }
+    p->loop_pos = pos;
+    p->pos_jump = pos;
+    p->pos_jump_note = 0;
+    p->pattern_break = 1;
+}
+
+void ahx_player_voices(ahx_player_t *p, unsigned mask)
+{
+    p->voices = (uint8_t)(mask & ((1u << AHX_CHANNELS) - 1u));
 }
 
 uint32_t ahx_player_frame_samples(const ahx_player_t *p)
@@ -1221,7 +1259,7 @@ static void ahx_player_run(ahx_player_t *p, int16_t *out, uint32_t samples, unsi
 
 void ahx_player_block(ahx_player_t *p, int16_t *out, uint32_t samples)
 {
-    ahx_player_run(p, out, samples, (1u << AHX_CHANNELS) - 1u, 0);
+    ahx_player_run(p, out, samples, p->voices, 0);
 }
 
 void ahx_player_audition_block(ahx_player_t *p, int16_t *out, uint32_t samples)

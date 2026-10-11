@@ -31,6 +31,13 @@ typedef struct {
     uint8_t song_end_reached;
     uint32_t playing_time;
 
+    /* The caller's own switches. Both are off by default: the song order, every voice.
+     * pattern_loop holds one order the way the reference's loop range holds a range of them
+     * (rfx/players/ahx_player.c), and loop_pos is which order that is. */
+    uint8_t pattern_loop;
+    uint16_t loop_pos;
+    uint8_t voices;                  /* one bit per channel: which of them the mix takes */
+
     /* Output settings. stereo ranges from 0 to 4. */
     uint32_t frequency;              /* the rate the module is rendered at */
     uint32_t frame_samples;          /* one frame at that rate: frequency / 50 */
@@ -57,6 +64,20 @@ void ahx_player_init(ahx_player_t *player, const ahx_song_t *song, const ahx_wav
 
 /* Start a subsong. Index 0 starts at the beginning; other indices are 1-based. */
 int ahx_player_subsong(ahx_player_t *player, unsigned index);
+
+/* Hold one pattern: the end of the order the transport is in starts it again at row 0 instead of
+ * moving on to the next one, and a jump out of it is put back. The row a break names is still
+ * taken, so the pattern's own breaks land where the module says. The order held is the one the
+ * transport is in when this is called, or the one ahx_player_seek() names. */
+void ahx_player_loop(ahx_player_t *player, int on);
+
+/* Hand the transport an order, which the row end applies the way it applies the module's own
+ * jump, and which the loop takes as the pattern it holds. */
+void ahx_player_seek(ahx_player_t *player, uint16_t pos);
+
+/* Which of the four channels the mix takes, one bit each; the rest keep their place in the frame
+ * (they are stepped and their notes keep sounding), so unmuting needs no restart. */
+void ahx_player_voices(ahx_player_t *player, unsigned mask);
 
 /* How many stereo pairs one frame of audio holds at this rate. */
 uint32_t ahx_player_frame_samples(const ahx_player_t *player);

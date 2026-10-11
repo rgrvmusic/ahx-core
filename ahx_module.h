@@ -30,6 +30,14 @@ int ahx_module_subsong(unsigned index);
 const ahx_song_t *ahx_module_song(void);
 const ahx_player_t *ahx_module_transport(void);
 
+/* The player's own switches and its mix, for the caller that reads the transport rather than
+ * writing it. Each is a no-op when nothing is loaded, and an open starts a player that is on the
+ * defaults (the song order, all four voices), so a caller that wants more sets them after every
+ * open. */
+void ahx_module_loop(int on);
+void ahx_module_seek(unsigned pos);
+void ahx_module_voices(unsigned mask);
+
 /* Add n stereo samples to the caller's mix buffers. Larger blocks are processed in AHX_BLOCK
  * chunks. */
 void ahx_module_mix(int32_t *mix_l, int32_t *mix_r, uint32_t n);

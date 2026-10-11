@@ -132,6 +132,7 @@ const char *ahx_error(int status)
     case AHX_ERR_SHORT:   return "module ends before its structures do";
     case AHX_ERR_ID:      return "not an AHX module";
     case AHX_ERR_FIELD:   return "header field out of range";
+    case AHX_ERR_ROOM:    return "the module does not fit the buffer";
     default:              return "unknown";
     }
 }

@@ -105,6 +105,27 @@ const ahx_player_t *ahx_module_transport(void)
     return ahx_mod_loaded ? &ahx_mod_player : 0;
 }
 
+void ahx_module_loop(int on)
+{
+    if (ahx_mod_loaded) {
+        ahx_player_loop(&ahx_mod_player, on);
+    }
+}
+
+void ahx_module_seek(unsigned pos)
+{
+    if (ahx_mod_loaded) {
+        ahx_player_seek(&ahx_mod_player, (uint16_t)pos);
+    }
+}
+
+void ahx_module_voices(unsigned mask)
+{
+    if (ahx_mod_loaded) {
+        ahx_player_voices(&ahx_mod_player, mask);
+    }
+}
+
 void ahx_module_mix(int32_t *mix_l, int32_t *mix_r, uint32_t n)
 {
     int16_t block[2 * AHX_MODULE_CHUNK];

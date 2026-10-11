@@ -2,9 +2,9 @@ Regrooved AHX core
 ==================
 
 
-AHX is the tracker format used by HivelyTracker. This C library reads AHX modules and renders
-their audio. It also provides a small note-playing interface for callers that do not need a
-module's tracks or transport.
+AHX is the tracker format used by HivelyTracker. This C library reads AHX modules, writes them
+back and renders their audio. It also provides a small note-playing interface for callers that do
+not need a module's tracks or transport.
 
 The core is self-contained and uses the C standard library. It is used by the AHX-1 firmware and
 can also be built as a standalone library.
@@ -50,7 +50,13 @@ sample rate (`-r`). The core does not apply an amplitude envelope; callers provi
 `ahx_voice_fixed.c` generates the required waveform in shared scratch space and uses a fixed-point
 step. The rest of the voice and module player is shared.
 
-The module reader is zero-copy: module data remains in the caller's buffer. See
+The module reader is zero-copy: module data remains in the caller's buffer, and `ahx_write.c` is
+its inverse in the same spirit. It is not an encoder: it writes a decoded cell, position,
+instrument, playlist step or header field back into the bytes it was read from, so a caller
+editing a module in place does not have to build one. The one exception is a playlist's length,
+which moves the bytes after it (and patches the header's stored title offset); the caller reparses
+afterwards. `host/ahx_write_check.c` is the round trip over a fixture built both ways, and the
+module corpus in the firmware tree is the wider test. See
 [`docs/ahx-container.md`](docs/ahx-container.md) for format details and
 [`docs/ahx-engine.md`](docs/ahx-engine.md) for implementation and comparison notes.
 
